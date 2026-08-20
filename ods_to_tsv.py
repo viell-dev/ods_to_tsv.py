@@ -5,7 +5,48 @@ import sys
 import os
 from datetime import datetime
 
-def extract_ods_to_tsv(ods_path):
+
+def extract_cell_text(cell, ns):
+    paragraphs = cell.xpath('.//text:p', namespaces=ns)
+    cell_parts = []
+    for p in paragraphs:
+        for node in p.iter():
+            if node.text:
+                cell_parts.append(node.text)
+            if node.tag == f"{{{ns['text']}}}s":
+                num_spaces = int(node.get(f"{{{ns['text']}}}c", 1))
+                cell_parts.append(" " * num_spaces)
+            if node.tag == f"{{{ns['text']}}}line-break":
+                cell_parts.append("\n")
+            if node != p and node.tail:
+                cell_parts.append(node.tail)
+        if p != paragraphs[-1]:
+            cell_parts.append("\n")
+
+    return "".join(cell_parts).strip()
+
+
+def extract_raw_cell_value(cell, ns):
+    value_type = cell.get(f"{{{ns['office']}}}value-type")
+    raw_attributes = {
+        "float": "value",
+        "percentage": "value",
+        "currency": "value",
+        "date": "date-value",
+        "time": "time-value",
+        "boolean": "boolean-value",
+        "string": "string-value",
+    }
+    raw_attribute = raw_attributes.get(value_type)
+    if raw_attribute:
+        raw_value = cell.get(f"{{{ns['office']}}}{raw_attribute}")
+        if raw_value is not None:
+            return raw_value.strip()
+
+    return extract_cell_text(cell, ns)
+
+
+def extract_ods_to_tsv(ods_path, raw=False):
     # Determine base name and create output directory
     basename = os.path.splitext(os.path.basename(ods_path))[0]
     timestamp = datetime.now().strftime("%Y-%m-%dT%H-%M-%S")
@@ -53,24 +94,10 @@ def extract_ods_to_tsv(ods_path):
                                 
                             for _ in range(col_repeat):
                                 if cell.tag == f"{{{ns['table']}}}table-cell":
-                                    # Extract text
-                                    paragraphs = cell.xpath('.//text:p', namespaces=ns)
-                                    cell_parts = []
-                                    for p in paragraphs:
-                                        for node in p.iter():
-                                            if node.text:
-                                                cell_parts.append(node.text)
-                                            if node.tag == f"{{{ns['text']}}}s":
-                                                num_spaces = int(node.get(f"{{{ns['text']}}}c", 1))
-                                                cell_parts.append(" " * num_spaces)
-                                            if node.tag == f"{{{ns['text']}}}line-break":
-                                                cell_parts.append("\n")
-                                            if node != p and node.tail:
-                                                cell_parts.append(node.tail)
-                                        if p != paragraphs[-1]:
-                                            cell_parts.append("\n")
-
-                                    cell_value = "".join(cell_parts).strip()
+                                    if raw:
+                                        cell_value = extract_raw_cell_value(cell, ns)
+                                    else:
+                                        cell_value = extract_cell_text(cell, ns)
 
                                     # Handle spans
                                     rows_spanned = int(cell.get(f"{{{ns['table']}}}number-rows-spanned", 1))
@@ -131,8 +158,15 @@ def extract_ods_to_tsv(ods_path):
                         else:
                             writer.writerow([row_cells.get(col_idx, "") for col_idx in range(sheet_width)])
 
+def main(args):
+    raw = "--raw" in args
+    ods_paths = [arg for arg in args if arg != "--raw"]
+    if len(ods_paths) != 1:
+        print("Usage: python ods_to_tsv.py [--raw] <filename.ods>")
+        return
+
+    extract_ods_to_tsv(ods_paths[0], raw=raw)
+
+
 if __name__ == "__main__":
-    if len(sys.argv) < 2:
-        print("Usage: python ods_to_tsv.py <filename.ods>")
-    else:
-        extract_ods_to_tsv(sys.argv[1])
+    main(sys.argv[1:])

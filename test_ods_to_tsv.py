@@ -5,7 +5,7 @@ import zipfile
 import csv
 import glob
 from datetime import datetime
-from ods_to_tsv import extract_ods_to_tsv
+from ods_to_tsv import extract_ods_to_tsv, main
 
 class TestOdsToTsv(unittest.TestCase):
     def setUp(self):
@@ -104,6 +104,43 @@ class TestOdsToTsv(unittest.TestCase):
         with open(os.path.join(dirs[0], "Sheet1.tsv"), 'r') as f:
             rows = list(csv.reader(f, delimiter='\t'))
             self.assertEqual(rows, [['Header'], ['Value']])
+
+    def test_raw_values_use_cached_cell_values(self):
+        content_xml = ['<?xml version="1.0" encoding="UTF-8"?>',
+                       '<office:document-content xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0" xmlns:table="urn:oasis:names:tc:opendocument:xmlns:table:1.0" xmlns:text="urn:oasis:names:tc:opendocument:xmlns:text:1.0">',
+                       '<office:body><office:spreadsheet>',
+                       '<table:table table:name="Sheet1">',
+                       '<table:table-row>',
+                       '<table:table-cell office:value-type="float" office:value="7"><text:p>0007</text:p></table:table-cell>',
+                       '<table:table-cell table:formula="of:=SUM([.A1])" office:value-type="float" office:value="7"><text:p>0007</text:p></table:table-cell>',
+                       '<table:table-cell office:value-type="string" office:string-value="raw text"><text:p>Formatted text</text:p></table:table-cell>',
+                       '<table:table-cell office:value-type="date" office:date-value="2026-08-20"><text:p>20 Aug 2026</text:p></table:table-cell>',
+                       '<table:table-cell office:value-type="time" office:time-value="PT03H30M00S"><text:p>03:30</text:p></table:table-cell>',
+                       '<table:table-cell office:value-type="boolean" office:boolean-value="true"><text:p>Yes</text:p></table:table-cell>',
+                       '</table:table-row>',
+                       '</table:table>',
+                       '</office:spreadsheet></office:body></office:document-content>']
+
+        for filename in ["formatted-values.ods", "raw-values.ods"]:
+            with zipfile.ZipFile(filename, 'w') as ods:
+                ods.writestr('content.xml', "".join(content_xml))
+
+        extract_ods_to_tsv("formatted-values.ods")
+        main(["--raw", "raw-values.ods"])
+
+        formatted_dir = glob.glob("formatted-values - *")
+        with open(os.path.join(formatted_dir[0], "Sheet1.tsv"), 'r') as f:
+            formatted_rows = list(csv.reader(f, delimiter='\t'))
+            self.assertEqual(formatted_rows, [[
+                '0007', '0007', 'Formatted text', '20 Aug 2026', '03:30', 'Yes'
+            ]])
+
+        raw_dir = glob.glob("raw-values - *")
+        with open(os.path.join(raw_dir[0], "Sheet1.tsv"), 'r') as f:
+            raw_rows = list(csv.reader(f, delimiter='\t'))
+            self.assertEqual(raw_rows, [[
+                '7', '7', 'raw text', '2026-08-20', 'PT03H30M00S', 'true'
+            ]])
 
     def test_leading_and_trailing_empty_rows_are_trimmed(self):
         self.create_fake_ods("edge-empty-rows.ods", [

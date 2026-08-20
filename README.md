@@ -33,10 +33,13 @@ pip install lxml
 Run the script from the command line, providing the path to your `.ods` file:
 
 ```bash
-python3 ods_to_tsv.py "Path/To/Your/File.ods"
+python3 ods_to_tsv.py [--raw] "Path/To/Your/File.ods"
 ```
 
 The script will create a new directory in your current location containing the extracted `.tsv` files.
+By default it exports the formatted text displayed by the spreadsheet. With `--raw`, it exports the
+stored raw value for numbers, dates, times, booleans, and strings. Formula cells use their cached
+stored result; the script does not calculate formulas itself.
 
 ## Testing
 
