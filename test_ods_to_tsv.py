@@ -105,6 +105,76 @@ class TestOdsToTsv(unittest.TestCase):
             rows = list(csv.reader(f, delimiter='\t'))
             self.assertEqual(rows, [['Header'], ['Value']])
 
+    def test_leading_and_trailing_empty_rows_are_trimmed(self):
+        self.create_fake_ods("edge-empty-rows.ods", [
+            {
+                'name': 'Sheet1',
+                'rows': [[''], [], ['Header'], ['Value'], [], ['']],
+            }
+        ])
+        extract_ods_to_tsv("edge-empty-rows.ods")
+
+        dirs = glob.glob("edge-empty-rows - *")
+        with open(os.path.join(dirs[0], "Sheet1.tsv"), 'r') as f:
+            rows = list(csv.reader(f, delimiter='\t'))
+            self.assertEqual(rows, [['Header'], ['Value']])
+
+    def test_empty_rows_between_content_are_preserved(self):
+        self.create_fake_ods("internal-empty-rows.ods", [
+            {
+                'name': 'Sheet1',
+                'rows': [['First'], [], [''], ['Second']],
+            }
+        ])
+        extract_ods_to_tsv("internal-empty-rows.ods")
+
+        dirs = glob.glob("internal-empty-rows - *")
+        with open(os.path.join(dirs[0], "Sheet1.tsv"), 'r') as f:
+            rows = list(csv.reader(f, delimiter='\t'))
+            self.assertEqual(rows, [['First'], [''], [''], ['Second']])
+
+    def test_repeated_empty_rows_between_content_are_preserved(self):
+        content_xml = ['<?xml version="1.0" encoding="UTF-8"?>',
+                       '<office:document-content xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0" xmlns:table="urn:oasis:names:tc:opendocument:xmlns:table:1.0" xmlns:text="urn:oasis:names:tc:opendocument:xmlns:text:1.0">',
+                       '<office:body><office:spreadsheet>',
+                       '<table:table table:name="Sheet1">',
+                       '<table:table-row><table:table-cell office:value-type="string"><text:p>First</text:p></table:table-cell></table:table-row>',
+                       '<table:table-row table:number-rows-repeated="101"><table:table-cell office:value-type="string"><text:p></text:p></table:table-cell></table:table-row>',
+                       '<table:table-row><table:table-cell office:value-type="string"><text:p>Second</text:p></table:table-cell></table:table-row>',
+                       '</table:table>',
+                       '</office:spreadsheet></office:body></office:document-content>']
+
+        with zipfile.ZipFile("repeated-empty-rows.ods", 'w') as ods:
+            ods.writestr('content.xml', "".join(content_xml))
+
+        extract_ods_to_tsv("repeated-empty-rows.ods")
+        dirs = glob.glob("repeated-empty-rows - *")
+        with open(os.path.join(dirs[0], "Sheet1.tsv"), 'r') as f:
+            rows = list(csv.reader(f, delimiter='\t'))
+            self.assertEqual(len(rows), 103)
+            self.assertEqual(rows[0], ['First'])
+            self.assertEqual(rows[-1], ['Second'])
+            self.assertTrue(all(row == [''] for row in rows[1:-1]))
+
+    def test_repeated_trailing_empty_rows_are_trimmed(self):
+        content_xml = ['<?xml version="1.0" encoding="UTF-8"?>',
+                       '<office:document-content xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0" xmlns:table="urn:oasis:names:tc:opendocument:xmlns:table:1.0" xmlns:text="urn:oasis:names:tc:opendocument:xmlns:text:1.0">',
+                       '<office:body><office:spreadsheet>',
+                       '<table:table table:name="Sheet1">',
+                       '<table:table-row><table:table-cell office:value-type="string"><text:p>Data</text:p></table:table-cell></table:table-row>',
+                       '<table:table-row table:number-rows-repeated="101"><table:table-cell office:value-type="string"><text:p></text:p></table:table-cell></table:table-row>',
+                       '</table:table>',
+                       '</office:spreadsheet></office:body></office:document-content>']
+
+        with zipfile.ZipFile("repeated-trailing-empty-rows.ods", 'w') as ods:
+            ods.writestr('content.xml', "".join(content_xml))
+
+        extract_ods_to_tsv("repeated-trailing-empty-rows.ods")
+        dirs = glob.glob("repeated-trailing-empty-rows - *")
+        with open(os.path.join(dirs[0], "Sheet1.tsv"), 'r') as f:
+            rows = list(csv.reader(f, delimiter='\t'))
+            self.assertEqual(rows, [['Data']])
+
     def test_repeated_empty_cells_before_data_preserve_position(self):
         self.create_fake_ods("repeated-empty.ods", [
             {
