@@ -77,6 +77,37 @@ class TestOdsToTsv(unittest.TestCase):
             rows = list(csv.reader(f, delimiter='\t'))
             self.assertEqual(rows, [['A1', 'B1', 'C1'], ['A2', '', '']])
 
+    def test_columns_empty_in_every_row_are_trimmed(self):
+        self.create_fake_ods("shared-trailing-empty.ods", [
+            {'name': 'Sheet1', 'rows': [['Header', '', ''], ['Value', '', '']]}
+        ])
+        extract_ods_to_tsv("shared-trailing-empty.ods")
+
+        dirs = glob.glob("shared-trailing-empty - *")
+        with open(os.path.join(dirs[0], "Sheet1.tsv"), 'r') as f:
+            rows = list(csv.reader(f, delimiter='\t'))
+            self.assertEqual(rows, [['Header'], ['Value']])
+
+    def test_repeated_empty_cells_before_data_preserve_position(self):
+        self.create_fake_ods("repeated-empty.ods", [
+            {
+                'name': 'Sheet1',
+                'rows': [
+                    ['Header'],
+                    [{'number-columns-repeated': '1025', 'text': ''}, 'Value'],
+                ],
+            }
+        ])
+        extract_ods_to_tsv("repeated-empty.ods")
+
+        dirs = glob.glob("repeated-empty - *")
+        with open(os.path.join(dirs[0], "Sheet1.tsv"), 'r') as f:
+            rows = list(csv.reader(f, delimiter='\t'))
+            self.assertEqual(len(rows[0]), 1026)
+            self.assertEqual(rows[0][0], 'Header')
+            self.assertEqual(rows[1][-1], 'Value')
+            self.assertTrue(all(len(row) == 1026 for row in rows))
+
     def test_merged_cells(self):
         # Test row-span and col-span
         content_xml = ['<?xml version="1.0" encoding="UTF-8"?>',
@@ -107,9 +138,9 @@ class TestOdsToTsv(unittest.TestCase):
         with open(os.path.join(dirs[0], "Spans.tsv"), 'r') as f:
             rows = list(csv.reader(f, delimiter='\t'))
             # Row 1: MergedRow, B1
-            self.assertEqual(rows[0], ['MergedRow', 'B1'])
+            self.assertEqual(rows[0], ['MergedRow', 'B1', ''])
             # Row 2: MergedRow, B2 (The covered-table-cell gets the value 'MergedRow')
-            self.assertEqual(rows[1], ['MergedRow', 'B2'])
+            self.assertEqual(rows[1], ['MergedRow', 'B2', ''])
             # Row 3: MergedCol, MergedCol, C3
             self.assertEqual(rows[2], ['MergedCol', 'MergedCol', 'C3'])
 
