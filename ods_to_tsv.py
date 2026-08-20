@@ -111,10 +111,6 @@ def extract_ods_to_tsv(ods_path):
                                 if not merged_cells:
                                     break
                             
-                            # Trim trailing empty cells
-                            while row_cells and not row_cells[-1]:
-                                row_cells.pop()
-                            
                             if row_cells or not is_empty_row:
                                 writer.writerow(row_cells)
                             

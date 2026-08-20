@@ -66,6 +66,17 @@ class TestOdsToTsv(unittest.TestCase):
             rows = list(reader)
             self.assertEqual(rows, [['A1', 'B1'], ['A2', 'B2']])
 
+    def test_trailing_empty_cells_are_preserved(self):
+        self.create_fake_ods("trailing-empty.ods", [
+            {'name': 'Sheet1', 'rows': [['A1', 'B1', 'C1'], ['A2', '', '']]}
+        ])
+        extract_ods_to_tsv("trailing-empty.ods")
+
+        dirs = glob.glob("trailing-empty - *")
+        with open(os.path.join(dirs[0], "Sheet1.tsv"), 'r') as f:
+            rows = list(csv.reader(f, delimiter='\t'))
+            self.assertEqual(rows, [['A1', 'B1', 'C1'], ['A2', '', '']])
+
     def test_merged_cells(self):
         # Test row-span and col-span
         content_xml = ['<?xml version="1.0" encoding="UTF-8"?>',

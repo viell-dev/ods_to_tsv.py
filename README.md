@@ -14,7 +14,7 @@ A robust Python script to extract individual sheets from an `.ods` (OpenDocument
   - Handles manual line breaks (`text:line-break`).
   - Preserves repeated spaces (`text:s`).
 - **Timestamped Backups**: Automatically creates a directory named `<filename> - <ISO-datetime>` in the current working directory to store the exports, allowing for dated backups.
-- **Efficiency**: Optimized to skip excessive trailing empty rows and columns often found in large spreadsheets.
+- **Efficiency**: Optimized to skip excessive trailing empty rows and columns often found in large spreadsheets while preserving explicitly represented empty cells in exported rows.
 - **Sanitization**: Automatically sanitizes sheet names for use as valid filenames.
 
 ## Requirements
