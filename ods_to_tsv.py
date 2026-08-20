@@ -46,6 +46,26 @@ def extract_raw_cell_value(cell, ns):
     return extract_cell_text(cell, ns)
 
 
+def is_empty_unmerged_row(row, ns, raw):
+    for cell in row.xpath('*'):
+        if cell.tag != f"{{{ns['table']}}}table-cell":
+            return False
+
+        if (
+            cell.get(f"{{{ns['table']}}}number-rows-spanned")
+            or cell.get(f"{{{ns['table']}}}number-columns-spanned")
+        ):
+            return False
+
+        cell_value = (
+            extract_raw_cell_value(cell, ns) if raw else extract_cell_text(cell, ns)
+        )
+        if cell_value:
+            return False
+
+    return True
+
+
 def extract_ods_to_tsv(ods_path, raw=False):
     # Determine base name and create output directory
     basename = os.path.splitext(os.path.basename(ods_path))[0]
@@ -83,6 +103,16 @@ def extract_ods_to_tsv(ods_path, raw=False):
                 
                 for row in rows:
                     row_repeat = int(row.get(f"{{{ns['table']}}}number-rows-repeated", 1))
+
+                    if (
+                        row_repeat > 1
+                        and not merged_cells
+                        and is_empty_unmerged_row(row, ns, raw)
+                    ):
+                        if sheet_rows:
+                            pending_empty_rows += row_repeat
+                        current_row_idx += row_repeat
+                        continue
                     
                     for r_rep in range(row_repeat):
                         row_cells = {}
