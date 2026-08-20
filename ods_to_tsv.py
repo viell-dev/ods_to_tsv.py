@@ -70,7 +70,7 @@ def extract_ods_to_tsv(ods_path):
                                         if p != paragraphs[-1]:
                                             cell_parts.append("\n")
 
-                                    cell_value = "".join(cell_parts)
+                                    cell_value = "".join(cell_parts).strip()
 
                                     # Handle spans
                                     rows_spanned = int(cell.get(f"{{{ns['table']}}}number-rows-spanned", 1))
