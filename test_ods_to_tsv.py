@@ -88,6 +88,23 @@ class TestOdsToTsv(unittest.TestCase):
             rows = list(csv.reader(f, delimiter='\t'))
             self.assertEqual(rows, [['Header'], ['Value']])
 
+    def test_cell_whitespace_is_trimmed(self):
+        self.create_fake_ods("cell-whitespace.ods", [
+            {
+                'name': 'Sheet1',
+                'rows': [
+                    ['  Header  ', '   '],
+                    ['\tValue\t', '\n'],
+                ],
+            }
+        ])
+        extract_ods_to_tsv("cell-whitespace.ods")
+
+        dirs = glob.glob("cell-whitespace - *")
+        with open(os.path.join(dirs[0], "Sheet1.tsv"), 'r') as f:
+            rows = list(csv.reader(f, delimiter='\t'))
+            self.assertEqual(rows, [['Header'], ['Value']])
+
     def test_repeated_empty_cells_before_data_preserve_position(self):
         self.create_fake_ods("repeated-empty.ods", [
             {
