@@ -35,93 +35,101 @@ def extract_ods_to_tsv(ods_path):
                 tsv_path = os.path.join(output_dir, f"{safe_name}.tsv")
                 
                 merged_cells = {} # (row_idx, col_idx) -> value
+                sheet_rows = []
+                rows = sheet.xpath('.//table:table-row', namespaces=ns)
+                current_row_idx = 0
                 
+                for row in rows:
+                    row_repeat = int(row.get(f"{{{ns['table']}}}number-rows-repeated", 1))
+                    
+                    for r_rep in range(row_repeat):
+                        row_cells = {}
+                        has_cells = False
+                        col_idx = 0
+                        cells = row.xpath('*')
+                            
+                        for cell in cells:
+                            col_repeat = int(cell.get(f"{{{ns['table']}}}number-columns-repeated", 1))
+                                
+                            for _ in range(col_repeat):
+                                if cell.tag == f"{{{ns['table']}}}table-cell":
+                                    # Extract text
+                                    paragraphs = cell.xpath('.//text:p', namespaces=ns)
+                                    cell_parts = []
+                                    for p in paragraphs:
+                                        for node in p.iter():
+                                            if node.text:
+                                                cell_parts.append(node.text)
+                                            if node.tag == f"{{{ns['text']}}}s":
+                                                num_spaces = int(node.get(f"{{{ns['text']}}}c", 1))
+                                                cell_parts.append(" " * num_spaces)
+                                            if node.tag == f"{{{ns['text']}}}line-break":
+                                                cell_parts.append("\n")
+                                            if node != p and node.tail:
+                                                cell_parts.append(node.tail)
+                                        if p != paragraphs[-1]:
+                                            cell_parts.append("\n")
+
+                                    cell_value = "".join(cell_parts)
+
+                                    # Handle spans
+                                    rows_spanned = int(cell.get(f"{{{ns['table']}}}number-rows-spanned", 1))
+                                    cols_spanned = int(cell.get(f"{{{ns['table']}}}number-columns-spanned", 1))
+
+                                    if rows_spanned > 1 or cols_spanned > 1:
+                                        for rs in range(rows_spanned):
+                                            for cs in range(cols_spanned):
+                                                if rs == 0 and cs == 0: continue
+                                                merged_cells[(current_row_idx + rs, col_idx + cs)] = cell_value
+
+                                    # Avoid materializing a long run of empty cells. If a later cell
+                                    # contains data, col_idx still retains its correct position.
+                                    if not cell_value and col_repeat > 1024:
+                                        has_cells = True
+                                        col_idx += col_repeat
+                                        break
+
+                                    has_cells = True
+                                    if cell_value:
+                                        row_cells[col_idx] = cell_value
+                                    col_idx += 1
+                                        
+                                elif cell.tag == f"{{{ns['table']}}}covered-table-cell":
+                                    val = merged_cells.get((current_row_idx, col_idx), "")
+                                    has_cells = True
+                                    if val:
+                                        row_cells[col_idx] = val
+                                    if (current_row_idx, col_idx) in merged_cells:
+                                        del merged_cells[(current_row_idx, col_idx)]
+                                    col_idx += 1
+                            
+                        # Final check for any remaining merged cells in this row
+                        while (current_row_idx, col_idx) in merged_cells:
+                            val = merged_cells[(current_row_idx, col_idx)]
+                            has_cells = True
+                            if val:
+                                row_cells[col_idx] = val
+                            del merged_cells[(current_row_idx, col_idx)]
+                            col_idx += 1
+
+                        is_empty_row = not row_cells
+                        if is_empty_row and row_repeat > 100 and current_row_idx > 10:
+                            if not merged_cells:
+                                break
+                            
+                        if has_cells:
+                            sheet_rows.append(row_cells)
+                            
+                        current_row_idx += 1
+                        
+                    if is_empty_row and row_repeat > 100 and not merged_cells:
+                        break
+
+                sheet_width = max((max(row_cells) + 1 for row_cells in sheet_rows if row_cells), default=0)
                 with open(tsv_path, 'w', newline='', encoding='utf-8') as f:
                     writer = csv.writer(f, delimiter='\t')
-                    
-                    rows = sheet.xpath('.//table:table-row', namespaces=ns)
-                    current_row_idx = 0
-                    
-                    for row in rows:
-                        row_repeat = int(row.get(f"{{{ns['table']}}}number-rows-repeated", 1))
-                        
-                        for r_rep in range(row_repeat):
-                            row_cells = []
-                            col_idx = 0
-                            cells = row.xpath('*') 
-                            
-                            for cell in cells:
-                                col_repeat = int(cell.get(f"{{{ns['table']}}}number-columns-repeated", 1))
-                                
-                                for _ in range(col_repeat):
-                                    if cell.tag == f"{{{ns['table']}}}table-cell":
-                                        # Extract text
-                                        paragraphs = cell.xpath('.//text:p', namespaces=ns)
-                                        cell_parts = []
-                                        for p in paragraphs:
-                                            for node in p.iter():
-                                                if node.text:
-                                                    cell_parts.append(node.text)
-                                                if node.tag == f"{{{ns['text']}}}s":
-                                                    num_spaces = int(node.get(f"{{{ns['text']}}}c", 1))
-                                                    cell_parts.append(" " * num_spaces)
-                                                if node.tag == f"{{{ns['text']}}}line-break":
-                                                    cell_parts.append("\n")
-                                                if node != p and node.tail:
-                                                    cell_parts.append(node.tail)
-                                            if p != paragraphs[-1]:
-                                                cell_parts.append("\n")
-                                        
-                                        cell_value = "".join(cell_parts)
-                                        
-                                        # Handle spans
-                                        rows_spanned = int(cell.get(f"{{{ns['table']}}}number-rows-spanned", 1))
-                                        cols_spanned = int(cell.get(f"{{{ns['table']}}}number-columns-spanned", 1))
-                                        
-                                        if rows_spanned > 1 or cols_spanned > 1:
-                                            for rs in range(rows_spanned):
-                                                for cs in range(cols_spanned):
-                                                    if rs == 0 and cs == 0: continue
-                                                    merged_cells[(current_row_idx + rs, col_idx + cs)] = cell_value
-
-                                        # Optimization for trailing empty columns
-                                        if not cell_value and col_repeat > 1024:
-                                            row_cells.append(cell_value)
-                                            col_idx += 1
-                                            break 
-                                        
-                                        row_cells.append(cell_value)
-                                        col_idx += 1
-                                        
-                                    elif cell.tag == f"{{{ns['table']}}}covered-table-cell":
-                                        val = merged_cells.get((current_row_idx, col_idx), "")
-                                        row_cells.append(val)
-                                        if (current_row_idx, col_idx) in merged_cells:
-                                            del merged_cells[(current_row_idx, col_idx)]
-                                        col_idx += 1
-                            
-                            # Final check for any remaining merged cells in this row
-                            while (current_row_idx, col_idx) in merged_cells:
-                                row_cells.append(merged_cells[(current_row_idx, col_idx)])
-                                del merged_cells[(current_row_idx, col_idx)]
-                                col_idx += 1
-
-                            is_empty_row = not any(row_cells)
-                            if is_empty_row and row_repeat > 100 and current_row_idx > 10:
-                                if not merged_cells:
-                                    break
-                            
-                            # Trim trailing empty cells
-                            while row_cells and not row_cells[-1]:
-                                row_cells.pop()
-                            
-                            if row_cells or not is_empty_row:
-                                writer.writerow(row_cells)
-                            
-                            current_row_idx += 1
-                        
-                        if is_empty_row and row_repeat > 100 and not merged_cells:
-                            break
+                    for row_cells in sheet_rows:
+                        writer.writerow([row_cells.get(col_idx, "") for col_idx in range(sheet_width)])
 
 if __name__ == "__main__":
     if len(sys.argv) < 2:
