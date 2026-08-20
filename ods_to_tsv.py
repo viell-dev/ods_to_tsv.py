@@ -36,6 +36,7 @@ def extract_ods_to_tsv(ods_path):
                 
                 merged_cells = {} # (row_idx, col_idx) -> value
                 sheet_rows = []
+                pending_empty_rows = 0
                 rows = sheet.xpath('.//table:table-row', namespaces=ns)
                 current_row_idx = 0
                 
@@ -44,7 +45,6 @@ def extract_ods_to_tsv(ods_path):
                     
                     for r_rep in range(row_repeat):
                         row_cells = {}
-                        has_cells = False
                         col_idx = 0
                         cells = row.xpath('*')
                             
@@ -85,18 +85,15 @@ def extract_ods_to_tsv(ods_path):
                                     # Avoid materializing a long run of empty cells. If a later cell
                                     # contains data, col_idx still retains its correct position.
                                     if not cell_value and col_repeat > 1024:
-                                        has_cells = True
                                         col_idx += col_repeat
                                         break
 
-                                    has_cells = True
                                     if cell_value:
                                         row_cells[col_idx] = cell_value
                                     col_idx += 1
                                         
                                 elif cell.tag == f"{{{ns['table']}}}covered-table-cell":
                                     val = merged_cells.get((current_row_idx, col_idx), "")
-                                    has_cells = True
                                     if val:
                                         row_cells[col_idx] = val
                                     if (current_row_idx, col_idx) in merged_cells:
@@ -106,30 +103,33 @@ def extract_ods_to_tsv(ods_path):
                         # Final check for any remaining merged cells in this row
                         while (current_row_idx, col_idx) in merged_cells:
                             val = merged_cells[(current_row_idx, col_idx)]
-                            has_cells = True
                             if val:
                                 row_cells[col_idx] = val
                             del merged_cells[(current_row_idx, col_idx)]
                             col_idx += 1
 
-                        is_empty_row = not row_cells
-                        if is_empty_row and row_repeat > 100 and current_row_idx > 10:
-                            if not merged_cells:
-                                break
-                            
-                        if has_cells:
+                        if row_cells:
+                            if sheet_rows and pending_empty_rows:
+                                sheet_rows.append(("empty", pending_empty_rows))
+                            pending_empty_rows = 0
                             sheet_rows.append(row_cells)
-                            
-                        current_row_idx += 1
-                        
-                    if is_empty_row and row_repeat > 100 and not merged_cells:
-                        break
+                        else:
+                            pending_empty_rows += 1
 
-                sheet_width = max((max(row_cells) + 1 for row_cells in sheet_rows if row_cells), default=0)
+                        current_row_idx += 1
+
+                sheet_width = max(
+                    (max(row_cells) + 1 for row_cells in sheet_rows if isinstance(row_cells, dict)),
+                    default=0,
+                )
                 with open(tsv_path, 'w', newline='', encoding='utf-8') as f:
                     writer = csv.writer(f, delimiter='\t')
                     for row_cells in sheet_rows:
-                        writer.writerow([row_cells.get(col_idx, "") for col_idx in range(sheet_width)])
+                        if isinstance(row_cells, tuple):
+                            for _ in range(row_cells[1]):
+                                writer.writerow([""] * sheet_width)
+                        else:
+                            writer.writerow([row_cells.get(col_idx, "") for col_idx in range(sheet_width)])
 
 if __name__ == "__main__":
     if len(sys.argv) < 2:
